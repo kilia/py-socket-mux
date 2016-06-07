@@ -1,4 +1,5 @@
-import struct, random, Queue
+import struct, random
+import Queue
 
 from config import log
 

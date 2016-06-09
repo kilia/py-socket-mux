@@ -20,5 +20,3 @@ One of the senario we see is like this:
 The connection graph is as follows:
 
 client - window(seq) - conversation(id) - tunnel ~multi-path~ tunnel - conversation - window - server
-
-# scripts

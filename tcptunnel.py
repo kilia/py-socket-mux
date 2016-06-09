@@ -27,7 +27,6 @@ class Window(object):
         self._cid = self._conv.register(self, cid)
         self._mws = max_window_size
         
-        
     def start(self):
         seq = 0
         self.send_to_conversation(seq, '') # send a '' packet to init the connection to the sever
@@ -41,7 +40,7 @@ class Window(object):
         self._conv.send_to_tunnel(self._cid, struct.pack('<i',seq) + data)
         
     def send_to_socket(self, data): # recv data from conversation :->
-        assert(len(data) > 4)
+        assert(len(data) >= 4)
         seq, = struct.unpack('<i',data[:4])
         
         if 0 <= (seq - self._ri) <= self._mws: # reorder the sequence
@@ -49,7 +48,7 @@ class Window(object):
         while self._ri in self._rbuffer:
             self._sock.sendall(self._rbuffer[self._ri])
             del self._rbuffer[self._ri]
-            self._ri += 1        
+            self._ri += 1
 
 class Conversation(object):
     def __init__(self, side):
@@ -67,7 +66,7 @@ class Conversation(object):
         tunnel.send_out(struct.pack('<Q',cid) + data)
         
     def send_to_window(self, data):
-        assert(len(data)>8)
+        assert(len(data)>=8)
         cid, = struct.unpack('<Q',data[:8])
         if cid not in self._regd:
             assert(self._side == 'server')
@@ -81,6 +80,7 @@ class Tunnel(object):
         
     def add_tunnel(self, tunnel):
         self._tunnels.append(tunnel)
+        print 'new tunnel added, total =', len(self._tunnels)
     
     def send_out(self, data):
         random.choice(self._tunnels).send_out(data)
@@ -107,6 +107,7 @@ class TcpTunnel(object):
             self._conv.send_to_window(data)
             
 
+''''
 #### test code
 
 class dummy_socket(object):
@@ -130,7 +131,6 @@ class dummy_socket(object):
 
 def server_con():
     return dummy_socket('test.txt')
-    
 make_server_connection = server_con
 
 def listen():
@@ -169,5 +169,5 @@ c = gevent.spawn(client)
 
 s.join()
 c.join()
-
+'''
 

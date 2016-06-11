@@ -15,16 +15,20 @@ class dummy_socket(object):
         
     def send(self, data):
         self.sendall(data)
-        self._echoq.put(data)
         
     def recv(self, size):
-        return queue.get()
+        data = self._echoq.get()
+        print 'send %d bytes to client' % len(data)
+        return data
         
     def sendall(self, data):
         #print 'send', len(data), data, [ord(c) for c in data]
         self._fd.write(data)
         self._fd.flush()
         print 'write', len(data), 'bytes'
+        print 'about to put queue'
+        self._echoq.put(data)
+        print 'queue size:', len(self._echoq)
         #gevent.sleep(0.1)
 
 def server_con():

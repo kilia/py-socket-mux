@@ -9,6 +9,7 @@ tcp.tunnel = tcp.Tunnel()
 class dummy_socket(object):
     def __init__(self, filename):
         self._fd = open(filename, 'wb')
+        self._rfd = open('tcptunnel.pyc','rb')
         self._seq = 0
         
     def send(self, data):
@@ -16,8 +17,9 @@ class dummy_socket(object):
         
     def recv(self, size):
         gevent.sleep(1.0)
-        self._seq += 1
-        return '%010d\n' % self._seq
+        #self._seq += 1
+        #return '%010d\n' % self._seq
+        return self._rfd.read(1024)
         
     def sendall(self, data):
         #print 'send', len(data), data, [ord(c) for c in data]

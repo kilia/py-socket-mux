@@ -12,6 +12,10 @@ client - window - conversation - tunnel ~ tunnel - conversation - window - serve
 #tunnel = None
 #make_server_connection = None
 
+STAT_NORMAL = ' '
+STAT_INIT = 'i'
+STAT_CLOSE = 'x'
+
 class Window(object):
     '''
     suppose no packet will be lost, but the order may be chaos.
@@ -30,12 +34,25 @@ class Window(object):
             gevent.spawn(self.start)
         
     def start(self):
+        #if hasattr(self._sock, 'settimeout'):
+        #    self._sock.settimeout(0.1)
         seq = 0
         self.send_to_conversation(seq, '') # send a '' packet to init the connection to the sever
+        seq += 1
         while True:
+            try:
+                data = self._sock.recv(1024) 
+                #print self._sock, '#', self._cid, 'recv:', len(data), 'bytes'
+                if len(data) == 0:
+                    raise Exception('connection closed')
+                self.send_to_conversation(seq, data)
+            except Exception as err:
+                print err, type(err), 'cid#', self._cid, 'shutdown soon'
+                gevent.sleep(1.0)
+                self._sock.close()
+                self._conv.unregister(self, self._cid)
+                return # exit
             seq += 1
-            data = self._sock.recv(1024)
-            self.send_to_conversation(seq, data)
         
     def send_to_conversation(self, seq, data): # send data to conversation
         #print 'send to conversation', seq, len(data), data 
@@ -44,13 +61,15 @@ class Window(object):
     def send_to_socket(self, data): # recv data from conversation :->
         assert(len(data) >= 4)
         seq, = struct.unpack('<i',data[:4])
-        
-        if 0 <= (seq - self._ri) <= self._mws: # reorder the sequence
-            self._rbuffer[seq] = data[4:]
+        #print 'seq#', seq
+        assert(0 <= (seq - self._ri) <= self._mws) # reorder the sequence
+        self._rbuffer[seq] = data[4:]
         while self._ri in self._rbuffer:
             self._sock.sendall(self._rbuffer[self._ri])
             del self._rbuffer[self._ri]
             self._ri += 1
+
+ColsedWindow = 'closed window'
 
 class Conversations(object):
     '''
@@ -68,8 +87,13 @@ class Conversations(object):
         if not cid:
             cid = random.getrandbits(64)
         self._regd[cid] = window
-        print 'regist conversation', cid, 'success'
+        print self._side, 'register conversation', cid, 'success'
         return cid
+        
+    def unregister(self, window, cid):
+        assert window == self._regd[cid]
+        self._regd[cid] = ColsedWindow # TODO close the window on the other side
+        print self._side, 'unregister conversation', cid
         
     def send_to_tunnel(self, cid, data):
         self._tunnel.send_out(struct.pack('<Q',cid) + data)
@@ -81,12 +105,20 @@ class Conversations(object):
             assert(self._side == 'server')
             w = Window(self._make_server_connection(), self, cid)
             gevent.spawn(w.start)
-        self._regd[cid].send_to_socket(data[8:])
+        w = self._regd[cid]
+        if w == ColsedWindow:
+            print self._side, '#', cid, 'already closed, drop packet'
+            return
+        w.send_to_socket(data[8:])
 
 def donot_make_connection():
     raise NotImplementedError('client side should not make new connection, something must go wrong')
 
 class Tunnel(object): # simple setup: 1 tunnel : 1 conversation : n window(cid)
+    '''
+    Tunnel manager
+    TODO did not deal with tunnel connection lost :(
+    '''
     def __init__(self, side, make_server_connection = donot_make_connection):
         self._tunnels = []
         self._side = side
@@ -150,68 +182,3 @@ class TcpTunnel(object): # implies reliable connection
             size, = struct.unpack('<i', sizebuf)
             data = self.recvall(size)
             self._conv.send_to_window(data)
-            
-''''
-#### test code
-
-class dummy_socket(object):
-    def __init__(self, filename):
-        self._fd = open(filename, 'wb')
-        self._seq = 0
-        
-    def send(self, data):
-        self.sendall(data)
-        
-    def recv(self, size):
-        gevent.sleep(1.0)
-        self._seq += 1
-        return '%010d' % self._seq
-        
-    def sendall(self, data):
-        #print 'send', len(data), data, [ord(c) for c in data]
-        self._fd.write(data)
-        self._fd.flush()
-        gevent.sleep(0.1)
-
-def server_con():
-    return dummy_socket('test.txt')
-make_server_connection = server_con
-
-def listen():
-    server = socket.socket()
-    server.bind(('0.0.0.0', 500))
-    print server, 'bind'
-    server.listen(500)
-    global tunnel
-    cs = Conversation('server')
-    while True:
-        sock, addr = server.accept()
-        print addr, 'connected'
-        t = TcpTunnel(sock, cs)
-        tunnel.add_tunnel(t)
-        gevent.spawn(t.send_to_conversation)
-
-def client():
-    c = socket.socket()
-    c.connect(('127.0.0.1',500))
-    t = TcpTunnel(c, Conversation('client'))
-    seq = 0
-    while True:
-        gevent.sleep(0.1)
-        msg = struct.pack('<Qi',9999, seq)+'hello world!<%d>\n'%seq
-        t.send_out(msg)
-        seq += 1
-        
-#conversation = Coversation('server')
-tunnel = Tunnel()
-#tunnel.add_tunnel(TcpTunnel(dummy_socket()))
-print 'spawn server'        
-s = gevent.spawn(listen)
-#s.start()
-c = gevent.spawn(client)
-#c.start()
-
-s.join()
-c.join()
-'''
-

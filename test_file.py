@@ -25,10 +25,8 @@ class dummy_echo_socket(object):
         #print 'send', len(data), data, [ord(c) for c in data]
         self._fd.write(data)
         self._fd.flush()
-        print 'write', len(data), 'bytes'
-        print 'about to put queue'
+        print 'server write', len(data), 'bytes'
         self._echoq.put(data)
-        print 'queue size:', len(self._echoq)
         #gevent.sleep(0.1)
 
 def server_con():
@@ -52,16 +50,22 @@ class dummy_socket(object):
         self.sendall(data)
         
     def recv(self, size):
-        gevent.sleep(1.0)
+        #gevent.sleep(0.1)
         #self._seq += 1
         #return '%010d\n' % self._seq
-        return self._rfd.read(1024)
+        data = self._rfd.read(size)
+        if len(data) == 0:
+            print 'finished reanding'
+            while True:
+                gevent.sleep(1.0)
+                quit()
+        return data
         
     def sendall(self, data):
         #print 'send', len(data), data, [ord(c) for c in data]
         self._fd.write(data)
         self._fd.flush()
-        print 'write', len(data), 'bytes'
+        print 'client write', len(data), 'bytes'
         #gevent.sleep(0.1)
 
 sock = dummy_socket('client.out')

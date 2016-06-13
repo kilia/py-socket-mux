@@ -8,16 +8,16 @@ from config import log
 client - window - conversation - tunnel ~ tunnel - conversation - window - server
 '''
 
-conversation = None
-tunnel = None
-make_server_connection = None
+#conversation = None
+#tunnel = None
+#make_server_connection = None
 
 class Window(object):
     '''
     suppose no packet will be lost, but the order may be chaos.
     deal with the out of order problem with a window algorithm.
     '''
-    def __init__(self, sock, conv, cid = None, max_window_size = 256):
+    def __init__(self, sock, conv, cid = None, max_window_size = 256, auto_spawn = False):
         #assert(sock is not None)
         self._sock = sock
         self._ri = 0 # ri ~ receive window index
@@ -26,6 +26,8 @@ class Window(object):
         self._conv = conv
         self._cid = self._conv.register(self, cid)
         self._mws = max_window_size
+        if auto_spawn:
+            gevent.spawn(self.start)
         
     def start(self):
         seq = 0
@@ -50,10 +52,17 @@ class Window(object):
             del self._rbuffer[self._ri]
             self._ri += 1
 
-class Conversation(object):
-    def __init__(self, side):
+class Conversations(object):
+    '''
+    Conversations is a conversation manager. 
+    Each conversation is identified by a unique conversation id.
+    By default, one conversation is mapped to only one tunnel
+    '''
+    def __init__(self, tunnel, side, make_server_connection): # map to a single tunnel
         self._regd = {}
         self._side = side
+        self._make_server_connection = make_server_connection
+        self._tunnel = tunnel
         
     def register(self, window, cid = None):
         if not cid:
@@ -63,29 +72,65 @@ class Conversation(object):
         return cid
         
     def send_to_tunnel(self, cid, data):
-        tunnel.send_out(struct.pack('<Q',cid) + data)
+        self._tunnel.send_out(struct.pack('<Q',cid) + data)
         
     def send_to_window(self, data):
         assert(len(data)>=8)
         cid, = struct.unpack('<Q',data[:8])
         if cid not in self._regd:
             assert(self._side == 'server')
-            w = Window(make_server_connection(), self, cid)
+            w = Window(self._make_server_connection(), self, cid)
             gevent.spawn(w.start)
         self._regd[cid].send_to_socket(data[8:])
-        
-class Tunnel(object):
-    def __init__(self):
+
+def donot_make_connection():
+    raise NotImplementedError('client side should not make new connection, something must go wrong')
+
+class Tunnel(object): # simple setup: 1 tunnel : 1 conversation : n window(cid)
+    def __init__(self, side, make_server_connection = donot_make_connection):
         self._tunnels = []
-        
+        self._side = side
+        self._conversation = Conversations(self, side, make_server_connection)
+    
+    def get_conversation(self):
+        return self._conversation
+    
     def add_tunnel(self, tunnel):
         self._tunnels.append(tunnel)
-        print 'new tunnel added, total =', len(self._tunnels)
+        print self._side, 'new tunnel added, total =', len(self._tunnels)
     
+    def add_tcp_tunnel(self, sock):
+        t = TcpTunnel(sock, self._conversation)
+        self.add_tunnel(t)
+        # begin conversation immediately
+        gevent.spawn(t.send_to_conversation)
+        
+    def tcp_listen(self, addr): # as server side
+        server_sock = socket.socket()
+        server_sock.bind(addr)
+        print 'server bind on:', addr
+        server_sock.listen(500)
+        while True:
+            sock, addr = server_sock.accept()
+            print addr, 'connected'
+            self.add_tcp_tunnel(sock)
+            
+    def tcp_connect(self, addr, tcp_connection_count = 8): # as client side
+        def client():
+            client_sock = socket.socket()
+            client_sock.connect(addr)
+            self.add_tcp_tunnel(client_sock)
+        greenlets = []
+        print 'connecting to ', addr, ' X', tcp_connection_count
+        for _ in xrange(tcp_connection_count):
+            greenlets.append(gevent.spawn(client))
+        gevent.joinall(greenlets)
+        print 'all connected'
+        
     def send_out(self, data):
         random.choice(self._tunnels).send_out(data)
     
-class TcpTunnel(object):
+class TcpTunnel(object): # implies reliable connection
     def __init__(self, sock, conv):
         self._sock = sock
         self._conv = conv
@@ -96,7 +141,7 @@ class TcpTunnel(object):
     def recvall(self, size):
         buf = ''
         while len(buf) < size:
-            buf += self._sock.recv(size - len(buf))
+            buf += self._sock.recv(size - len(buf)) # python 2.7.10 already optimized str + operation
         return buf
         
     def send_to_conversation(self):
@@ -106,7 +151,6 @@ class TcpTunnel(object):
             data = self.recvall(size)
             self._conv.send_to_window(data)
             
-
 ''''
 #### test code
 

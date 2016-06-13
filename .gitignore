@@ -1,0 +1,5 @@
+# compiled file
+*.pyc
+
+# test output
+*.out

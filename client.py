@@ -10,7 +10,7 @@ PORT = 52000
 client_tunnel = tcp.Tunnel('client')
 remote_addr = ('104.224.140.44', PORT)
 #remote_addr = ('127.0.0.1', PORT)
-client_tunnel.tcp_connect(remote_addr)
+client_tunnel.tcp_connect(remote_addr, 80)
 
 # listen to accept a REAL client
 server_sock = socket.socket()

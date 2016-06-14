@@ -6,6 +6,7 @@ import tcptunnel as tcp
 
 def server_con():
     sock = socket.socket()
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     addr = ('localhost', 5454)
     #addr = ('localhost', 51080)
     sock.connect(addr)

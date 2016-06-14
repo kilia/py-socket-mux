@@ -1,6 +1,7 @@
 import struct, random
 import gevent
 from gevent import socket
+from gevent.event import Event
 
 from config import log
 
@@ -21,7 +22,7 @@ class Window(object):
     suppose no packet will be lost, but the order may be chaos.
     deal with the out of order problem with a window algorithm.
     '''
-    def __init__(self, sock, conv, cid = None, max_window_size = 256, auto_spawn = False):
+    def __init__(self, sock, conv, cid = None, max_window_size = 100*1024, auto_spawn = False):
         #assert(sock is not None)
         self._sock = sock
         self._ri = 0 # ri ~ receive window index
@@ -32,6 +33,9 @@ class Window(object):
         self._mws = max_window_size
         if auto_spawn:
             gevent.spawn(self.start)
+    
+    def get_side(self):
+        return self._conv.get_side()
         
     def start(self):
         #if hasattr(self._sock, 'settimeout'):
@@ -55,14 +59,15 @@ class Window(object):
             seq += 1
         
     def send_to_conversation(self, seq, data): # send data to conversation
-        #print 'send to conversation', seq, len(data), data 
+        #print self.get_side(), self._cid, 'send to conversation #seq=', seq, 'size=', len(data) 
         self._conv.send_to_tunnel(self._cid, struct.pack('<i',seq) + data)
         
     def send_to_socket(self, data): # recv data from conversation :->
         assert(len(data) >= 4)
         seq, = struct.unpack('<i',data[:4])
-        #print 'seq#', seq
+        print self.get_side(), self._cid, 'seq#', seq, '_ri', self._ri
         assert(0 <= (seq - self._ri) <= self._mws) # reorder the sequence
+        # TODO what if seq is dupe or too fast? we need to drop it here
         self._rbuffer[seq] = data[4:]
         while self._ri in self._rbuffer:
             self._sock.sendall(self._rbuffer[self._ri])
@@ -83,6 +88,9 @@ class Conversations(object):
         self._make_server_connection = make_server_connection
         self._tunnel = tunnel
         
+    def get_side(self):
+        return self._side
+        
     def register(self, window, cid = None):
         if not cid:
             cid = random.getrandbits(64)
@@ -100,12 +108,20 @@ class Conversations(object):
         
     def send_to_window(self, data):
         assert(len(data)>=8)
+        #print self.get_side(), 'dump regd:', self._regd
         cid, = struct.unpack('<Q',data[:8])
         if cid not in self._regd:
             assert(self._side == 'server')
+            e = Event()
+            self._regd[cid] = e # wait for me 
             w = Window(self._make_server_connection(), self, cid)
             gevent.spawn(w.start)
+            self._regd[cid] = w
+            e.set() # ready, good to go
         w = self._regd[cid]
+        while type(w) == Event:
+            w.wait()
+            w = self._regd[cid]
         if w == ColsedWindow:
             print self._side, '#', cid, 'already closed, drop packet'
             return

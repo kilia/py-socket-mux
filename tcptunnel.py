@@ -53,10 +53,13 @@ class Window(object):
             except Exception as err:
                 print err, type(err), 'cid#', self._cid, 'shutdown soon'
                 gevent.sleep(1.0)
-                self._sock.close()
-                self._conv.unregister(self, self._cid)
+                self.close()
                 return # exit
             seq += 1
+    
+    def close(self): # on disconnect/reset/other exceptions close up
+        self._sock.close()
+        self._conv.unregister(self, self._cid)
         
     def send_to_conversation(self, seq, data): # send data to conversation
         #print self.get_side(), self._cid, 'send to conversation #seq=', seq, 'size=', len(data) 
@@ -65,12 +68,17 @@ class Window(object):
     def send_to_socket(self, data): # recv data from conversation :->
         assert(len(data) >= 4)
         seq, = struct.unpack('<i',data[:4])
-        print self.get_side(), self._cid, 'seq#', seq, '_ri', self._ri
+        #print self.get_side(), self._cid, 'seq#', seq, '_ri', self._ri
         assert(0 <= (seq - self._ri) <= self._mws) # reorder the sequence
         # TODO what if seq is dupe or too fast? we need to drop it here
         self._rbuffer[seq] = data[4:]
         while self._ri in self._rbuffer:
-            self._sock.sendall(self._rbuffer[self._ri])
+            try:
+                self._sock.sendall(self._rbuffer[self._ri])
+            except Exception as err:
+                print err, type(err), 'cid#', self._cid, 'shutdown soon'
+                gevent.sleep(1.0)
+                return
             del self._rbuffer[self._ri]
             self._ri += 1
 

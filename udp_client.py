@@ -3,16 +3,16 @@ import gevent
 from gevent import socket, queue
 from sys import stdout, stderr
 
-#address = ('104.224.140.44', 9000)
-address = ('127.0.0.1', 9000)
+address = ('104.224.140.44', 9000)
+#address = ('127.0.0.1', 9000)
 
 sock = socket.socket(type=socket.SOCK_DGRAM)
 sock.connect(address)
 #print('Sending %s bytes to %s:%s' % ((len(message), ) + address))
 
-M = 16
+M = 4
 
-def sender(sock, packets, multi, speed_limit = 2000):
+def sender(sock, packets, multi, speed_limit = 500):
     p = [multi for i in xrange(packets)]
     batch = int(100/M)
     starttime = time.time()
@@ -44,7 +44,8 @@ def receiver(sock, packets, q):
             q.put(data[4:])
     except Exception as err:
         stderr.write('%s %s\n' % (str(type(err)), str(err)))
-    stderr.write('total %d packets, %d missing\n' % (packets, (packets - len(rs))))
+    lost = packets - len(rs)
+    stderr.write('total %d packets, %d(%.2f%%) missing\n' % (packets, lost, (lost*100./packets)))
     q.put(None)
 
 def counter(q):
@@ -54,7 +55,7 @@ def counter(q):
             break
         stdout.write(data)
 
-packets = 50000
+packets = 20000
 q = queue.Queue()
 greenlets = [
     gevent.spawn(sender,sock, packets/M, M),

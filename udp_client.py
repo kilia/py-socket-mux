@@ -1,16 +1,20 @@
 import sys, struct, time
 import gevent
-from gevent import socket
+from gevent import socket, queue
+from sys import stdout, stderr
 
-address = ('104.224.140.44', 9000)
+#address = ('104.224.140.44', 9000)
+address = ('127.0.0.1', 9000)
 
 sock = socket.socket(type=socket.SOCK_DGRAM)
 sock.connect(address)
 #print('Sending %s bytes to %s:%s' % ((len(message), ) + address))
 
-def sender(sock, packets, speed_limit = 25000):
-    p = range(packets)
-    batch = 100
+M = 16
+
+def sender(sock, packets, multi, speed_limit = 2000):
+    p = [multi for i in xrange(packets)]
+    batch = int(100/M)
     starttime = time.time()
     while len(p) > 0:
         t0 = time.time()
@@ -23,33 +27,39 @@ def sender(sock, packets, speed_limit = 25000):
         if dt > 0:
             #print 'sleeping', dt
             gevent.sleep(dt)
-    print 'sent all', (time.time() - starttime)
+    stderr.write('sent all in %.2f sec\n' % (time.time() - starttime))
 
-def receiver(sock, packets, timeout = 100.):
-    end = time.time() + timeout
-    s = set(xrange(packets))
-    rc = []
+def receiver(sock, packets, q):
+    #s = set(xrange(packets))
     rs = []
     sock.settimeout(1.0)
     try:
-        while time.time() < end:
+        while True:
             data, address = sock.recvfrom(8192)
-            i, j = struct.unpack('<ii', data[:8])
+            i = struct.unpack('<i', data[:4])
             #print 'received', i, j
             #received.append((i, j))
-            rc.append(i)
-            rs.append(j)
-            s.remove(i)
+            rs.append(i)
+            #s.remove(i)
+            q.put(data[4:])
     except Exception as err:
-        print err
-    print len(rc), len(s)
-    print max(rs)-min(rs)
+        stderr.write('%s %s\n' % (str(type(err)), str(err)))
+    stderr.write('total %d packets, %d missing\n' % (packets, (packets - len(rs))))
+    q.put(None)
 
+def counter(q):
+    while True:
+        data = q.get()
+        if data is None:
+            break
+        stdout.write(data)
 
-packets = 10000
+packets = 50000
+q = queue.Queue()
 greenlets = [
-    gevent.spawn(sender,sock, packets),
-    gevent.spawn(receiver,sock, packets)
+    gevent.spawn(sender,sock, packets/M, M),
+    gevent.spawn(receiver,sock, packets, q),
+    gevent.spawn(counter, q)
 ]
 
 gevent.joinall(greenlets)

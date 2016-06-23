@@ -2,10 +2,10 @@ import struct, time
 from collections import deque
 
 from gevent.server import DatagramServer
-from gevent import queue
+from gevent import queue, socket
 import gevent
 
-q = queue.Queue(16)
+q = queue.Queue()
 
 class EchoServer(DatagramServer):
     def __init__(self, *args, **kwargs):
@@ -19,19 +19,29 @@ class EchoServer(DatagramServer):
         count, = struct.unpack('<i', data)
         #if count > 64: count = 64
         #if count < 1: count = 1
-        gevent.sleep(0.1)
+        #gevent.sleep(0.5)
+        self.socket.setsockopt(socket.SOL_SOCKET,socket.SO_RCVBUF,1024*1024*10)
+        print('buffer:%d\n'%self.socket.getsockopt(socket.SOL_SOCKET,socket.SO_RCVBUF))
+
+        seq = 0
         print 'sending %d packets' % count
         for i in xrange(count):
-            data = struct.pack('<i', self._seq) + self._payload
-            self._seq += 1
+            data = struct.pack('<i', seq) + self._payload
+            seq += 1
             #self.socket.sendto(data, address)
             q.put((self.socket, data, address))
 
+def active_sleep(t):
+    assert(t>=0)
+    t0 = time.time() + t
+    while time.time() < t0:
+        gevent.sleep(0)
+        pass
 
-def sender(limit = 15 * 1024 * 1024):
+def sender(limit = 5 * 1024 * 1024):
     global q
     print 'sender started'
-    window_size = 128
+    window_size = 512
     window = deque(maxlen = window_size * 2)
     t = time.time()
     for _ in xrange(window_size):
@@ -60,19 +70,22 @@ def sender(limit = 15 * 1024 * 1024):
         #print dt
         sleeptime = bytes_in_window*1.0/limit - dt
 
+        '''
         if sleeptime < comp_t:
             comp_t -= sleeptime
             sleeptime = 0
         else:
             sleeptime -= comp_t
             comp_t = 0            
-
+        '''
         if sleeptime > 0:
             t = time.time()
-            gevent.sleep(0.001)
+            #gevent.sleep(sleeptime)
+            active_sleep(sleeptime)
             rt = time.time() - t
             comp_t += (rt - sleeptime)/25
-            print 'want to sleep %.4f sec, acctually %.4f sec' % (sleeptime, rt)
+            if rt - sleeptime > 0.01:
+                print 'want to sleep %.4f sec, acctually %.4f sec' % (sleeptime, rt)
 
 if __name__ == '__main__':
     print('Receiving datagrams on :9000')

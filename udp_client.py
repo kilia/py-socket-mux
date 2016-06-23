@@ -3,18 +3,18 @@ import gevent
 from gevent import socket, queue
 from sys import stdout, stderr
 
-address = ('104.224.140.44', 9000)
-#address = ('127.0.0.1', 9000)
+#address = ('104.224.140.44', 9000)
+address = ('127.0.0.1', 9000)
 
 sock = socket.socket(type=socket.SOCK_DGRAM)
 sock.connect(address)
 #print('Sending %s bytes to %s:%s' % ((len(message), ) + address))
 
-M = 4
+M = 200
 
-def sender(sock, packets, multi, speed_limit = 500):
+def sender(sock, packets, multi, speed_limit = 1000):
     p = [multi for i in xrange(packets)]
-    batch = int(100/M)
+    batch = int(1)
     starttime = time.time()
     while len(p) > 0:
         t0 = time.time()
@@ -24,8 +24,8 @@ def sender(sock, packets, multi, speed_limit = 500):
             sock.send(struct.pack('<i', p.pop()))
         dt = time.time() - t0
         dt = batch * 1./speed_limit - dt
-        if dt > 0:
-            #print 'sleeping', dt
+        if dt > 0.0:
+            #stderr.write('sleeping %.2f sec\n' % dt)
             gevent.sleep(dt)
     stderr.write('sent all in %.2f sec\n' % (time.time() - starttime))
 
@@ -55,7 +55,7 @@ def counter(q):
             break
         stdout.write(data)
 
-packets = 20000
+packets = 100000
 q = queue.Queue()
 greenlets = [
     gevent.spawn(sender,sock, packets/M, M),
